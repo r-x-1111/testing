@@ -1,4 +1,4 @@
-import { Home, Send, Users, Receipt, Settings, ShieldCheck } from 'lucide-react';
+import { Home, Send, Users, Receipt, Settings, ShieldCheck, TrendingUp } from 'lucide-react';
 import { Logo } from './Logo';
 import { LanguageSelector } from './LanguageSelector';
 import { useLang } from '@/lib/LanguageContext';
@@ -15,6 +15,7 @@ export function Sidebar({ current, onNavigate }: SidebarProps) {
   const navItems: { id: Page; label: TranslationKey; icon: typeof Home }[] = [
     { id: 'dashboard', label: 'nav.dashboard', icon: Home },
     { id: 'send', label: 'nav.send', icon: Send },
+    { id: 'veriplan', label: 'nav.veriplan', icon: TrendingUp },
     { id: 'recipients', label: 'nav.recipients', icon: Users },
     { id: 'history', label: 'nav.history', icon: Receipt },
     { id: 'settings', label: 'nav.settings', icon: Settings },

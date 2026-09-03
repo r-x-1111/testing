@@ -7,8 +7,9 @@ import {
 import { supabase } from '@/lib/supabase';
 import { runGonkaModel, compareModels, checkReason, checkFreshness } from '@/lib/gonka';
 import { runSafetyLayer, checkDuplicate, evaluatePolicies } from '@/lib/safety';
+import { checkAffordability } from '@/lib/veriplan';
 import { generateIntentHash, generatePurposeHash, generateSuiDigest, generateGonkaId, executeOnSui } from '@/lib/sui';
-import type { Recipient, Transaction, ModelOutput, PaymentPolicy, Guardian, SendFlowState, SafetyWarning, TranslationKey } from '@/lib/types';
+import type { Recipient, Transaction, ModelOutput, PaymentPolicy, Guardian, SendFlowState, SafetyWarning, TranslationKey, FinancialPlan } from '@/lib/types';
 import { useLang } from '@/lib/LanguageContext';
 import { ProcessingOverlay } from '@/components/ProcessingOverlay';
 import { WarningCard, CheckRow } from '@/components/WarningCard';
@@ -60,6 +61,7 @@ export function SendFlow({ onComplete }: { onComplete: () => void }) {
   const [policies, setPolicies] = useState<PaymentPolicy[]>([]);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [recentTx, setRecentTx] = useState<Transaction[]>([]);
+  const [financialPlan, setFinancialPlan] = useState<FinancialPlan | null>(null);
   const [processing, setProcessing] = useState(false);
   const [showClarify, setShowClarify] = useState(false);
   const [handshakeModal, setHandshakeModal] = useState(false);
@@ -91,16 +93,18 @@ export function SendFlow({ onComplete }: { onComplete: () => void }) {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const [recipRes, polRes, guardRes, txRes] = await Promise.all([
+    const [recipRes, polRes, guardRes, txRes, planRes] = await Promise.all([
       supabase.from('recipients').select('*'),
       supabase.from('payment_policies').select('*'),
       supabase.from('guardians').select('*'),
       supabase.from('transactions').select('*').order('created_at', { ascending: false }).limit(20),
+      supabase.from('financial_plans').select('*').order('created_at', { ascending: false }).limit(1).single().catch(() => ({ data: null })),
     ]);
     setRecipients(recipRes.data ?? []);
     setPolicies(polRes.data ?? []);
     setGuardians(guardRes.data ?? []);
     setRecentTx(txRes.data ?? []);
+    setFinancialPlan(planRes.data ?? null);
   }
 
   const stepIndex = STEP_ORDER.indexOf(step);
@@ -144,14 +148,26 @@ export function SendFlow({ onComplete }: { onComplete: () => void }) {
 
   const runSafetyAnalysis = useCallback(async () => {
     setProcessing(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    const model = flow.modelA!;
-    const recipient = recipients.find((r) => r.nickname.toLowerCase() === model.recipient.toLowerCase()) ?? null;
-    const warnings = runSafetyLayer(model, recipient, recentTx);
-    setFlow((prev) => ({ ...prev, recipient, safetyWarnings: warnings }));
-    setProcessing(false);
-    setStep('recipient');
-  }, [flow.modelA, recipients, recentTx]);
+    try {
+      await new Promise((r) => setTimeout(r, 1200));
+      const model = flow.modelA!;
+      const recipient = recipients.find((r) => r.nickname.toLowerCase() === model.recipient.toLowerCase()) ?? null;
+      let warnings = runSafetyLayer(model, recipient, recentTx);
+
+      // Check affordability against VeriPlan if plan exists
+      if (financialPlan && flow.modelA) {
+        const affordability = checkAffordability(financialPlan, flow.modelA.amount, recentTx);
+        warnings = [...warnings, ...affordability.warnings];
+      }
+
+      setFlow((prev) => ({ ...prev, recipient, safetyWarnings: warnings }));
+    } catch (error) {
+      console.error('Safety analysis failed:', error);
+    } finally {
+      setProcessing(false);
+      setStep('recipient');
+    }
+  }, [flow.modelA, recipients, recentTx, financialPlan]);
 
   const runIntentLock = useCallback(async () => {
     setProcessing(true);

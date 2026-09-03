@@ -26,6 +26,7 @@ export type TranslationKey =
   | 'app.tagline'
   | 'nav.dashboard'
   | 'nav.send'
+  | 'nav.veriplan'
   | 'nav.recipients'
   | 'nav.history'
   | 'nav.settings'
@@ -267,6 +268,7 @@ const en: TranslationDict = {
   'app.tagline': 'Gonka interprets. Code verifies. VeriSend warns. You authorize. Sui executes.',
   'nav.dashboard': 'Dashboard',
   'nav.send': 'Send Money',
+  'nav.veriplan': 'VeriPlan',
   'nav.recipients': 'Recipients',
   'nav.history': 'History',
   'nav.settings': 'Settings',

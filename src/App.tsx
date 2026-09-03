@@ -5,6 +5,7 @@ import { SendFlow } from '@/views/SendFlow';
 import { Recipients } from '@/views/Recipients';
 import { History } from '@/views/History';
 import { Settings } from '@/views/Settings';
+import { VeriPlan } from '@/views/VeriPlan';
 import { LanguageProvider } from '@/lib/LanguageContext';
 import type { Page } from '@/lib/types';
 
@@ -28,6 +29,7 @@ function App() {
             {page === 'recipients' && <Recipients />}
             {page === 'history' && <History />}
             {page === 'settings' && <Settings />}
+            {page === 'veriplan' && <VeriPlan />}
           </div>
         </main>
       </div>
