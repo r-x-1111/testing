@@ -1,8 +1,21 @@
 import type { ModelOutput, ReasonCheckResult, Recipient } from './types';
 
-const WALLET_PREFIX = '0x7a3b9c2f4e8d';
+const GONKA_API_URL = 'https://api.gonkarouter.io/v1/chat/completions';
+const GONKA_RECEIPT_URL = 'https://api.gonkarouter.io/v1/receipts';
+const GONKA_API_KEY = import.meta.env.VITE_GONKA_API_KEY || '';
+
+// Model IDs - check hackathon API key Models page for exact values
+// Currently using standard model families
+const MODEL_A = 'MiniMaxAI/MiniMax-M2.7';
+const MODEL_B = 'moonshotai/Kimi-K2.6';
+
+interface GonkaResponse {
+  choices: Array<{ message: { content: string } }>;
+  headers: Record<string, string>;
+}
 
 function generateWallet(seed: string): string {
+  const WALLET_PREFIX = '0x7a3b9c2f4e8d';
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
     hash = (hash << 5) - hash + seed.charCodeAt(i);
@@ -59,61 +72,144 @@ function extractWallet(raw: string): string {
   return walletMatch ? walletMatch[0] : '';
 }
 
-export function runGonkaModel(
+export async function callGonkaModel(
+  instruction: string,
+  modelId: string
+): Promise<{ content: string; requestId: string }> {
+  try {
+    const response = await fetch(GONKA_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GONKA_API_KEY}`,
+        'X-Gonka-No-Fallback': 'true',
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a payment instruction parser. Extract recipient, amount, token, and purpose from user instructions. Return JSON.',
+          },
+          {
+            role: 'user',
+            content: instruction,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
+      }),
+    });
+
+    const data = (await response.json()) as GonkaResponse;
+    const content = data.choices?.[0]?.message?.content || '';
+    const requestId = (response.headers.get('X-Request-Id') || `req-${Date.now()}`).toString();
+
+    return { content, requestId };
+  } catch (error) {
+    console.error(`Gonka API error for ${modelId}:`, error);
+    return { content: '{}', requestId: '' };
+  }
+}
+
+export async function runGonkaModel(
   instruction: string,
   modelId: string,
   recipients: Recipient[],
   variance: number
-): ModelOutput {
-  const recipientName = extractRecipient(instruction);
+): Promise<ModelOutput & { requestId: string }> {
+  const { content, requestId } = await callGonkaModel(instruction, modelId);
+
+  let parsed: Partial<ModelOutput> = {};
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    // Fall back to regex extraction
+  }
+
+  const recipientName = parsed.recipient || extractRecipient(instruction);
   const existing = recipients.find(
     (r) => r.nickname.toLowerCase() === recipientName.toLowerCase()
   );
   const usual = existing?.usual_amount ?? 200;
-  const baseAmount = parseAmount(instruction, usual);
-  const walletFromInstruction = extractWallet(instruction);
+  const baseAmount = parsed.amount || parseAmount(instruction, usual);
 
   let amount = baseAmount;
   if (variance > 0) {
     amount = Math.round(baseAmount * (1 + variance) * 100) / 100;
   }
 
-  const wallet = walletFromInstruction || existing?.wallet_address || generateWallet(recipientName || instruction);
+  const walletFromInstruction = extractWallet(instruction);
+  const wallet = walletFromInstruction || parsed.wallet_address || existing?.wallet_address || generateWallet(recipientName || instruction);
 
   return {
     recipient: recipientName || 'Unknown',
     amount,
-    token: extractToken(instruction),
-    purpose: extractPurpose(instruction),
+    token: parsed.token || extractToken(instruction),
+    purpose: parsed.purpose || extractPurpose(instruction),
     wallet_address: wallet,
     model_id: modelId,
     confidence: Math.round((95 - variance * 30) * 10) / 10,
+    requestId,
   };
 }
 
-export function compareModels(a: ModelOutput, b: ModelOutput): { agree: boolean; fields: string[] } {
+export async function runDualAIVerification(
+  instruction: string,
+  recipients: Recipient[]
+): Promise<{
+  modelA: ModelOutput & { requestId: string };
+  modelB: ModelOutput & { requestId: string };
+  agree: boolean;
+  mismatchFields: string[];
+}> {
+  const modelA = await runGonkaModel(instruction, MODEL_A, recipients, 0);
+  const modelB = await runGonkaModel(instruction, MODEL_B, recipients, 0);
+
+  const { agree, fields } = compareModels(modelA, modelB);
+
+  return { modelA, modelB, agree, mismatchFields: fields };
+}
+
+export function compareModels(
+  a: ModelOutput,
+  b: ModelOutput
+): { agree: boolean; fields: string[] } {
   const fields: string[] = [];
-  if (a.recipient.toLowerCase() !== b.recipient.toLowerCase()) fields.push('recipient');
+  if (a.recipient.toLowerCase() !== b.recipient.toLowerCase())
+    fields.push('recipient');
   if (Math.abs(a.amount - b.amount) > 0.01) fields.push('amount');
   if (a.token !== b.token) fields.push('token');
-  if (a.purpose.toLowerCase() !== b.purpose.toLowerCase()) fields.push('purpose');
+  if (a.purpose.toLowerCase() !== b.purpose.toLowerCase())
+    fields.push('purpose');
   if (a.wallet_address !== b.wallet_address) fields.push('wallet');
   return { agree: fields.length === 0, fields };
 }
 
-export function checkReason(instruction: string): ReasonCheckResult | null {
+export async function checkReason(
+  instruction: string
+): Promise<ReasonCheckResult | null> {
   const lower = instruction.toLowerCase();
 
-  if (lower.includes('earthquake') || lower.includes('flood') || lower.includes('emergency') || lower.includes('family was affected')) {
-    const claimMatch = lower.match(/(?:because|since|her family was affected by)\s+(.+)/);
-    const claim = claimMatch ? claimMatch[1].replace(/[.!?].*$/, '').trim() : 'emergency claim';
+  if (
+    lower.includes('earthquake') ||
+    lower.includes('flood') ||
+    lower.includes('emergency') ||
+    lower.includes('family was affected')
+  ) {
+    const claimMatch = lower.match(
+      /(?:because|since|her family was affected by)\s+(.+)/
+    );
+    const claim = claimMatch
+      ? claimMatch[1].replace(/[.!?].*$/, '').trim()
+      : 'emergency claim';
 
     return {
       claim,
       truth_score: 92,
       claim_supported: true,
       recipient_connection: 'Not established',
-      gonka_request_ids: ['GR-8F32A1', 'GR-9B71C4'],
+      gonka_request_ids: [],
     };
   }
 
@@ -123,11 +219,33 @@ export function checkReason(instruction: string): ReasonCheckResult | null {
       truth_score: 45,
       claim_supported: false,
       recipient_connection: 'Unverified',
-      gonka_request_ids: ['GR-3D21E9', 'GR-7C44F1'],
+      gonka_request_ids: [],
     };
   }
 
   return null;
+}
+
+export async function verifyGonkaReceipt(requestId: string): Promise<boolean> {
+  if (!requestId) return false;
+
+  try {
+    const response = await fetch(`${GONKA_RECEIPT_URL}/${requestId}`, {
+      headers: {
+        Authorization: `Bearer ${GONKA_API_KEY}`,
+      },
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Failed to verify Gonka receipt:', error);
+    return false;
+  }
+}
+
+export interface FreshnessResult {
+  fresh: boolean;
+  last_checked: string;
+  message: string;
 }
 
 export function checkFreshness(reasonCheck: ReasonCheckResult | null): FreshnessResult | null {
