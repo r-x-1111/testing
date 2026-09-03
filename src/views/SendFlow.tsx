@@ -107,24 +107,39 @@ export function SendFlow({ onComplete }: { onComplete: () => void }) {
 
   const runDualAI = useCallback(async () => {
     setProcessing(true);
-    await new Promise((r) => setTimeout(r, 1800));
-    const modelA = runGonkaModel(flow.instruction, 'gonka-primus-v2', recipients, 0);
-    await new Promise((r) => setTimeout(r, 600));
-    const modelB = runGonkaModel(flow.instruction, 'gonka-sekunda-v1', recipients, 0);
-    const comparison = compareModels(modelA, modelB);
-    setFlow((prev) => ({ ...prev, modelA, modelB, modelsAgree: comparison.agree, ambiguityFields: comparison.fields }));
-    setProcessing(false);
-    if (!comparison.agree) { setShowClarify(true); } else { setStep('reason'); }
+    try {
+      await new Promise((r) => setTimeout(r, 1800));
+      const modelA = await runGonkaModel(flow.instruction, 'MiniMaxAI/MiniMax-M2.7', recipients, 0);
+      await new Promise((r) => setTimeout(r, 600));
+      const modelB = await runGonkaModel(flow.instruction, 'moonshotai/Kimi-K2.6', recipients, 0);
+      const comparison = compareModels(modelA, modelB);
+      setFlow((prev) => ({ ...prev, modelA, modelB, modelsAgree: comparison.agree, ambiguityFields: comparison.fields }));
+      if (!comparison.agree) { 
+        setShowClarify(true); 
+      } else { 
+        setStep('reason'); 
+      }
+    } catch (error) {
+      console.error('Dual-AI verification failed:', error);
+      alert('Failed to verify instructions. Please try again.');
+    } finally {
+      setProcessing(false);
+    }
   }, [flow.instruction, recipients]);
 
   const runReasonCheck = useCallback(async () => {
     setProcessing(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    const reasonResult = checkReason(flow.instruction);
-    const freshness = checkFreshness(reasonResult);
-    setFlow((prev) => ({ ...prev, reasonCheck: reasonResult, freshness }));
-    setProcessing(false);
-    setStep('safety');
+    try {
+      await new Promise((r) => setTimeout(r, 1500));
+      const reasonResult = await checkReason(flow.instruction);
+      const freshness = checkFreshness(reasonResult);
+      setFlow((prev) => ({ ...prev, reasonCheck: reasonResult, freshness }));
+    } catch (error) {
+      console.error('Reason check failed:', error);
+    } finally {
+      setProcessing(false);
+      setStep('safety');
+    }
   }, [flow.instruction]);
 
   const runSafetyAnalysis = useCallback(async () => {
@@ -169,20 +184,32 @@ export function SendFlow({ onComplete }: { onComplete: () => void }) {
 
   const executeSui = useCallback(async () => {
     setProcessing(true);
-    await new Promise((r) => setTimeout(r, 2000));
-    const { digest, escrowUntil } = executeOnSui(flow.modelA!.amount, flow.modelA!.token, flow.modelA!.wallet_address, flow.executionMethod);
-    const gonkaIds = [generateGonkaId(), generateGonkaId()];
-    const receipt = { intent_hash: flow.intentHash!, purpose_hash: flow.purposeHash!, gonka_ids: gonkaIds, recipient_confirmed: flow.recipient?.wallet_confirmed ?? false, user_authorized: true, execution: flow.executionMethod, sui_digest: digest, status: 'SUCCESS' };
-    const { data } = await supabase.from('transactions').insert({
-      recipient_name: flow.modelA!.recipient, wallet_address: flow.modelA!.wallet_address, amount: flow.modelA!.amount, token: flow.modelA!.token, purpose: flow.modelA!.purpose, instruction: flow.instruction,
-      model_a_output: flow.modelA, model_b_output: flow.modelB, models_agree: flow.modelsAgree, reason_check: flow.reasonCheck, safety_warnings: flow.safetyWarnings,
-      intent_hash: flow.intentHash, purpose_hash: flow.purposeHash, intent_valid_until: flow.intentValidUntil, duplicate_flagged: flow.duplicateFlagged,
-      second_approval_required: flow.secondApprovalRequired, second_approval_status: flow.secondApprovalStatus, execution_method: flow.executionMethod, escrow_until: escrowUntil,
-      sui_digest: digest, status: flow.executionMethod === 'safesend' ? 'escrow' : 'completed', receipt,
-    }).select('*').single();
-    setFlow((prev) => ({ ...prev, suiDigest: digest, status: flow.executionMethod === 'safesend' ? 'escrow' : 'completed', finalTransactionId: data?.id ?? null }));
-    setProcessing(false);
-    setStep('receipt');
+    try {
+      await new Promise((r) => setTimeout(r, 2000));
+      const { digest, escrowUntil } = await executeOnSui(
+        flow.modelA!.amount, 
+        flow.modelA!.token, 
+        flow.modelA!.wallet_address, 
+        flow.executionMethod,
+        flow.modelA!.wallet_address
+      );
+      const gonkaIds = [generateGonkaId(), generateGonkaId()];
+      const receipt = { intent_hash: flow.intentHash!, purpose_hash: flow.purposeHash!, gonka_ids: gonkaIds, recipient_confirmed: flow.recipient?.wallet_confirmed ?? false, user_authorized: true, execution: flow.executionMethod, sui_digest: digest, status: 'SUCCESS' };
+      const { data } = await supabase.from('transactions').insert({
+        recipient_name: flow.modelA!.recipient, wallet_address: flow.modelA!.wallet_address, amount: flow.modelA!.amount, token: flow.modelA!.token, purpose: flow.modelA!.purpose, instruction: flow.instruction,
+        model_a_output: flow.modelA, model_b_output: flow.modelB, models_agree: flow.modelsAgree, reason_check: flow.reasonCheck, safety_warnings: flow.safetyWarnings,
+        intent_hash: flow.intentHash, purpose_hash: flow.purposeHash, intent_valid_until: flow.intentValidUntil, duplicate_flagged: flow.duplicateFlagged,
+        second_approval_required: flow.secondApprovalRequired, second_approval_status: flow.secondApprovalStatus, execution_method: flow.executionMethod, escrow_until: escrowUntil,
+        sui_digest: digest, status: flow.executionMethod === 'safesend' ? 'escrow' : 'completed', receipt,
+      }).select('*').single();
+      setFlow((prev) => ({ ...prev, suiDigest: digest, status: flow.executionMethod === 'safesend' ? 'escrow' : 'completed', finalTransactionId: data?.id ?? null }));
+      setStep('receipt');
+    } catch (error) {
+      console.error('Sui execution failed:', error);
+      alert('Transaction failed. Please try again.');
+    } finally {
+      setProcessing(false);
+    }
   }, [flow]);
 
   useEffect(() => {
