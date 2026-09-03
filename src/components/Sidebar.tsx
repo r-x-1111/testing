@@ -1,21 +1,25 @@
 import { Home, Send, Users, Receipt, Settings, ShieldCheck } from 'lucide-react';
 import { Logo } from './Logo';
-import type { Page } from '@/lib/types';
+import { LanguageSelector } from './LanguageSelector';
+import { useLang } from '@/lib/LanguageContext';
+import type { Page, TranslationKey } from '@/lib/types';
 
 interface SidebarProps {
   current: Page;
   onNavigate: (page: Page) => void;
 }
 
-const navItems: { id: Page; label: string; icon: typeof Home }[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: Home },
-  { id: 'send', label: 'Send Money', icon: Send },
-  { id: 'recipients', label: 'Recipients', icon: Users },
-  { id: 'history', label: 'History', icon: Receipt },
-  { id: 'settings', label: 'Settings', icon: Settings },
-];
-
 export function Sidebar({ current, onNavigate }: SidebarProps) {
+  const { t } = useLang();
+
+  const navItems: { id: Page; label: TranslationKey; icon: typeof Home }[] = [
+    { id: 'dashboard', label: 'nav.dashboard', icon: Home },
+    { id: 'send', label: 'nav.send', icon: Send },
+    { id: 'recipients', label: 'nav.recipients', icon: Users },
+    { id: 'history', label: 'nav.history', icon: Receipt },
+    { id: 'settings', label: 'nav.settings', icon: Settings },
+  ];
+
   return (
     <>
       {/* Desktop sidebar */}
@@ -38,18 +42,21 @@ export function Sidebar({ current, onNavigate }: SidebarProps) {
                 }`}
               >
                 <Icon size={18} strokeWidth={active ? 2.5 : 2} />
-                {item.label}
+                {t(item.label)}
               </button>
             );
           })}
         </nav>
+        <div className="px-3 pb-3">
+          <LanguageSelector />
+        </div>
         <div className="p-4 m-3 rounded-xl glass-card">
           <div className="flex items-center gap-2 mb-1.5">
             <ShieldCheck size={14} className="text-accent-400" />
-            <span className="text-xs font-semibold text-accent-400">Safety Active</span>
+            <span className="text-xs font-semibold text-accent-400">{t('safety.active')}</span>
           </div>
           <p className="text-[11px] text-ink-400 leading-relaxed">
-            Gonka interprets. Code verifies. VeriSend warns. You authorize. Sui executes.
+            {t('app.tagline')}
           </p>
         </div>
       </aside>
@@ -68,7 +75,7 @@ export function Sidebar({ current, onNavigate }: SidebarProps) {
               }`}
             >
               <Icon size={20} strokeWidth={active ? 2.5 : 2} />
-              <span className="text-[10px] font-medium">{item.label}</span>
+              <span className="text-[10px] font-medium">{t(item.label)}</span>
             </button>
           );
         })}

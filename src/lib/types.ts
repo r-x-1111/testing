@@ -1,5 +1,7 @@
 export type Page = 'dashboard' | 'send' | 'recipients' | 'history' | 'settings';
 
+export type TranslationKey = import('./i18n').TranslationKey;
+
 export interface Recipient {
   id: string;
   nickname: string;
