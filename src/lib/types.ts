@@ -1,4 +1,4 @@
-export type Page = 'dashboard' | 'send' | 'recipients' | 'history' | 'settings';
+export type Page = 'dashboard' | 'send' | 'recipients' | 'history' | 'settings' | 'veriplan';
 
 export type TranslationKey = import('./i18n').TranslationKey;
 
@@ -135,4 +135,46 @@ export interface SendFlowState {
   suiDigest: string | null;
   status: TxStatus;
   finalTransactionId: string | null;
+}
+
+export interface BudgetPurpose {
+  id: string;
+  name: string;
+  category: 'family_support' | 'education' | 'rent' | 'emergency' | 'other';
+  planned_amount: number;
+  description: string;
+}
+
+export interface FinancialPlan {
+  id: string;
+  user_id: string;
+  monthly_income: number;
+  essential_expenses: number;
+  emergency_savings_target: number;
+  currency: string;
+  purposes: BudgetPurpose[];
+  description: string;
+  language: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BudgetAnalysis {
+  monthly_income: number;
+  essential_expenses: number;
+  emergency_savings_target: number;
+  total_planned_remittances: number;
+  available_for_transfers: number;
+  remaining_after_obligations: number;
+  buffer_percentage: number;
+  affordability_warnings: SafetyWarning[];
+}
+
+export interface AffordabilityCheck {
+  proposed_amount: number;
+  remaining_after_transfer: number;
+  remaining_after_obligations: number;
+  meets_emergency_target: boolean;
+  warnings: SafetyWarning[];
+  recommendation: string;
 }
